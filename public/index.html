@@ -137,11 +137,11 @@ header.hero{display:flex;align-items:center;justify-content:space-between;gap:28
 .detail-info h2{font-size:clamp(1.65rem,4vw,2.25rem);line-height:1.2;margin:7px 0}
 .detail-info>.note{margin:0 0 14px}
 .denom-title{font-size:1.1rem;margin:22px 0 10px}
-.denomination-list{gap:9px}
+.denomination-list{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:8px}
 .denomination-wrap{background:var(--surface-raised);border:1px solid var(--line);border-radius:12px}
 .denomination-wrap:hover,.denomination-wrap.selected{border-color:#816b9b;background:var(--surface-raised)}
-.denomination{padding:13px 14px}
-.denom-name{font-weight:700}
+.denomination{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:6px;padding:10px 11px}
+.denom-name{font-weight:700;overflow-wrap:anywhere}
 .denom-note{font-size:.85rem;color:var(--muted);margin-top:3px}
 .denomination .badge{display:table;margin-top:6px}
 .badge{font-size:.76rem;padding:4px 9px;border-radius:999px}
@@ -173,7 +173,7 @@ footer{display:flex;justify-content:center;align-items:center;gap:12px;color:var
 .admin-link:hover{color:var(--text);text-decoration:underline}
 .loading{padding:22px;color:var(--muted);text-align:center}
 @media(max-width:720px){.wrap{padding:20px 18px 32px}header.hero{align-items:flex-start;flex-direction:column;gap:12px;padding-bottom:22px}.hero-message{margin-left:0}.catalog-intro{align-items:stretch;flex-direction:column;gap:12px}.search-wrap{width:100%}.product-detail{grid-template-columns:1fr;padding:14px;gap:12px}.detail-art{min-height:240px}.detail-info{padding:8px 2px}.bar b{width:100%}}
-@media(max-width:480px){.wrap{padding:16px 14px 28px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{padding:0 11px 12px;border-radius:13px}.product-art{height:130px;margin:0 -11px 11px}.name{font-size:1rem}.card .row{align-items:flex-start;flex-direction:column;gap:4px}.tabs{gap:7px}.tab{min-height:38px;padding:7px 11px;font-size:.9rem}.denomination{padding:12px 10px}.denom-price{font-size:1rem}.acts{gap:6px}.btn{padding:7px 10px}footer{flex-wrap:wrap}}
+@media(max-width:480px){.wrap{padding:16px 14px 28px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{padding:0 11px 12px;border-radius:13px}.product-art{height:130px;margin:0 -11px 11px}.name{font-size:1rem}.card .row{align-items:flex-start;flex-direction:column;gap:4px}.tabs{gap:7px}.tab{min-height:38px;padding:7px 11px;font-size:.9rem}.denom-price{font-size:1rem}.acts{gap:6px}.btn{padding:7px 10px}footer{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head><body>
