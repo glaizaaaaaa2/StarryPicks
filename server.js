@@ -1,5 +1,6 @@
-// StarryPicks server - no npm packages needed, just Node 20.6+
+// StarryPicks server
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
+const { Pool } = require('pg');
 const PORT = process.env.PORT || 3000;
 const PASS = process.env.ADMIN_PASSWORD;
 if (!PASS || PASS.length < 8) { console.error('Set ADMIN_PASSWORD in .env (8+ characters). Copy .env.example to .env first.'); process.exit(1); }
@@ -17,6 +18,7 @@ if (DISCORD_URL) {
 const SECRET = crypto.randomBytes(32);          // sessions reset when the server restarts
 const DB = path.join(__dirname, 'data', 'products.json');
 const PAGE = path.join(__dirname, 'public', 'index.html');
+const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5 }) : null;
 
 const SEED = {
   shop: { name: 'StarryPicks', by: 'by Elora', tagline: 'Prices & availability, updated by Elora ✦' },
@@ -34,8 +36,8 @@ const SEED = {
   ],
   categories: ['Mobile Games', 'Roblox', 'PC Games', 'MLBB']
 };
-function load() { try { return JSON.parse(fs.readFileSync(DB, 'utf8')); } catch { fs.mkdirSync(path.dirname(DB), { recursive: true }); save(SEED); return structuredClone(SEED); } }
-function save(d) { const tmp = DB + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(d, null, 2)); fs.renameSync(tmp, DB); }
+function load() { try { return JSON.parse(fs.readFileSync(DB, 'utf8')); } catch { fs.mkdirSync(path.dirname(DB), { recursive: true }); saveLocal(SEED); return structuredClone(SEED); } }
+function saveLocal(d) { const tmp = DB + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(d, null, 2)); fs.renameSync(tmp, DB); }
 let data = load();
 let migrated = !Array.isArray(data.categories);
 if (!Array.isArray(data.categories)) data.categories = [];
@@ -72,7 +74,28 @@ for (const product of data.products) {
   if (!Array.isArray(product.denominations)) product.denominations = [];
   if (ensureCategory(product.category)) migrated = true;
 }
-if (migrated) save(data);
+if (migrated) saveLocal(data);
+async function save() {
+  if (!pool) return saveLocal(data);
+  await pool.query('UPDATE starrypicks_state SET catalog = $1::jsonb, updated_at = NOW() WHERE id = $2', [JSON.stringify(data), 'main']);
+}
+async function initializeStorage() {
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS starrypicks_state (
+      id TEXT PRIMARY KEY,
+      catalog JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    'INSERT INTO starrypicks_state (id, catalog) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING',
+    ['main', JSON.stringify(data)]
+  );
+  const result = await pool.query('SELECT catalog FROM starrypicks_state WHERE id = $1', ['main']);
+  if (!result.rows[0]) throw new Error('Catalog row is missing from PostgreSQL.');
+  data = result.rows[0].catalog;
+}
 function publicData() { return { ...data, shop: { ...data.shop, discordUrl: DISCORD_URL } }; }
 
 const sign = s => crypto.createHmac('sha256', SECRET).update(s).digest('hex');
@@ -103,7 +126,12 @@ function cleanDenomination(b) {
   return { name, price, note: String(b.note || '').trim().slice(0, 200), available: !!b.available };
 }
 
-http.createServer(async (req, res) => {
+async function start() {
+  await initializeStorage();
+  httpServer.listen(PORT, '0.0.0.0', () => console.log(`StarryPicks running on port ${PORT}  (admin: /admin)`));
+}
+
+const httpServer = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'), p = url.pathname, ip = req.socket.remoteAddress;
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('X-Frame-Options', 'DENY');
   try {
@@ -128,7 +156,7 @@ http.createServer(async (req, res) => {
       const b = await body(req), category = String(b.category || '').trim();
       if (!category || category.length > 50) return send(res, 400, { error: 'Category must be between 1 and 50 characters.' });
       if (data.categories.some(x => x.toLowerCase() === category.toLowerCase())) return send(res, 409, { error: 'That category already exists.' });
-      data.categories.push(category); save(data); return send(res, 200, publicData());
+      data.categories.push(category); await save(); return send(res, 200, publicData());
     }
     if (req.method === 'PUT' && p === '/api/categories') {
       const b = await body(req), oldCategory = String(b.oldCategory || '').trim(), category = String(b.category || '').trim();
@@ -139,7 +167,7 @@ http.createServer(async (req, res) => {
       const storedCategory = data.categories[index];
       data.categories[index] = category;
       for (const product of data.products) if (product.category === storedCategory) product.category = category;
-      save(data); return send(res, 200, publicData());
+      await save(); return send(res, 200, publicData());
     }
     if (req.method === 'DELETE' && p === '/api/categories') {
       const b = await body(req), category = String(b.category || '').trim();
@@ -148,7 +176,7 @@ http.createServer(async (req, res) => {
       const storedCategory = data.categories[index];
       data.categories.splice(index, 1);
       for (const product of data.products) if (product.category === storedCategory) product.category = '';
-      save(data); return send(res, 200, publicData());
+      await save(); return send(res, 200, publicData());
     }
     const d = /^\/api\/products\/([\w-]+)\/denominations(?:\/([\w-]+))?$/.exec(p);
     if (d) {
@@ -158,38 +186,47 @@ http.createServer(async (req, res) => {
         const v = cleanDenomination(await body(req));
         if (!v) return send(res, 400, { error: 'Enter a denomination name and a non-negative price.' });
         product.denominations.push({ id: crypto.randomUUID().slice(0, 8), ...v });
-        save(data); return send(res, 200, publicData());
+        await save(); return send(res, 200, publicData());
       }
       if (d[2] && req.method === 'PUT') {
         const v = cleanDenomination(await body(req)), index = product.denominations.findIndex(x => x.id === d[2]);
         if (!v) return send(res, 400, { error: 'Enter a denomination name and a non-negative price.' });
         if (index < 0) return send(res, 404, { error: 'Denomination not found.' });
         product.denominations[index] = { id: d[2], ...v };
-        save(data); return send(res, 200, publicData());
+        await save(); return send(res, 200, publicData());
       }
       if (d[2] && req.method === 'DELETE') {
         const index = product.denominations.findIndex(x => x.id === d[2]);
         if (index < 0) return send(res, 404, { error: 'Denomination not found.' });
         product.denominations.splice(index, 1);
-        save(data); return send(res, 200, publicData());
+        await save(); return send(res, 200, publicData());
       }
     }
     const m = /^\/api\/products\/([\w-]+)$/.exec(p);
     if (req.method === 'POST' && p === '/api/products') {
       const v = cleanProduct(await body(req)); if (!v) return send(res, 400, { error: 'Enter a product name and a valid HTTPS image URL (if using one).' });
-      ensureCategory(v.category); data.products.push({ id: crypto.randomUUID().slice(0, 8), ...v, denominations: [] }); save(data); return send(res, 200, publicData());
+      ensureCategory(v.category); data.products.push({ id: crypto.randomUUID().slice(0, 8), ...v, denominations: [] }); await save(); return send(res, 200, publicData());
     }
     if (m && req.method === 'PUT') {
       const v = cleanProduct(await body(req)), product = data.products.find(x => x.id === m[1]);
       if (!v) return send(res, 400, { error: 'Enter a product name and a valid HTTPS image URL (if using one).' });
       if (!product) return send(res, 404, { error: 'Product not found.' });
-      ensureCategory(v.category); Object.assign(product, v); save(data); return send(res, 200, publicData());
+      ensureCategory(v.category); Object.assign(product, v); await save(); return send(res, 200, publicData());
     }
     if (m && req.method === 'DELETE') {
       const index = data.products.findIndex(x => x.id === m[1]);
       if (index < 0) return send(res, 404, { error: 'Product not found.' });
-      data.products.splice(index, 1); save(data); return send(res, 200, publicData());
+      data.products.splice(index, 1); await save(); return send(res, 200, publicData());
     }
     send(res, 404, { error: 'Not found' });
-  } catch (e) { send(res, 400, { error: e.message }); }
-}).listen(PORT, '0.0.0.0', () => console.log(`StarryPicks running on port ${PORT}  (admin: /admin)`));
+  } catch (e) {
+    console.error('Request failed:', e);
+    send(res, pool ? 500 : 400, { error: e.message });
+  }
+});
+
+start().catch(async error => {
+  console.error('Could not initialize StarryPicks storage:', error);
+  if (pool) await pool.end();
+  process.exitCode = 1;
+});

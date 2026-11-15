@@ -3,7 +3,7 @@ services:
     name: starrypicks
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: node server.js
     healthCheckPath: /healthz
     envVars:
@@ -11,3 +11,13 @@ services:
         sync: false
       - key: COOKIE_SECURE
         value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: starrypicks-db
+          property: connectionString
+
+databases:
+  - name: starrypicks-db
+    databaseName: starrypicks
+    user: starrypicks
+    plan: free
