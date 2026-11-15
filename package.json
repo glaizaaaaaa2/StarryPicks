@@ -1,0 +1,8 @@
+{
+  "name": "starrypicks",
+  "version": "1.0.0",
+  "description": "StarryPicks by Elora - pricelist site with admin",
+  "main": "server.js",
+  "scripts": { "start": "node --env-file=.env server.js" },
+  "engines": { "node": ">=20.6" }
+}
